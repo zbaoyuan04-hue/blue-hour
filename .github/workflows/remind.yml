@@ -1,0 +1,66 @@
+name: 蓝调时刻提醒
+
+on:
+  schedule:
+    # 每 10 分钟检查一次。这是 UTC 时间，不用改，程序自己换算北京时间。
+    - cron: "*/10 * * * *"
+  workflow_dispatch: {} # 网页上手动点一下 = 立刻发一条测试消息
+
+permissions:
+  contents: write
+
+concurrency:
+  group: blue-hour
+  cancel-in-progress: false
+
+jobs:
+  remind:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 今天的日期（北京时间）
+        id: day
+        run: echo "day=$(TZ=Asia/Shanghai date +%F)" >> "$GITHUB_OUTPUT"
+
+      - name: 检查今天是否已经发过
+        id: sent
+        uses: actions/cache/restore@v4
+        with:
+          path: .sent
+          key: sent-${{ steps.day.outputs.day }}
+
+      - name: 到点就发
+        if: github.event_name == 'schedule' && steps.sent.outputs.cache-hit != 'true'
+        env:
+          SCT_KEY: ${{ secrets.SCT_KEY }}
+        run: python3 blue_hour.py
+
+      - name: 记下今天已发
+        if: github.event_name == 'schedule' && steps.sent.outputs.cache-hit != 'true' && hashFiles('.sent/**') != ''
+        continue-on-error: true
+        uses: actions/cache/save@v4
+        with:
+          path: .sent
+          key: sent-${{ steps.day.outputs.day }}
+
+      - name: 手动触发时发一条测试
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          SCT_KEY: ${{ secrets.SCT_KEY }}
+        run: python3 blue_hour.py --test
+
+      # GitHub 会停用 60 天没有动静的仓库的定时任务，每月提交一次文件保持活跃
+      - name: 每月保活
+        continue-on-error: true
+        run: |
+          M=$(date -u +%Y-%m)
+          if [ ! -f ".alive/$M" ]; then
+            mkdir -p .alive && touch ".alive/$M"
+            git config user.name "blue-hour-bot"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add .alive
+            git commit -m "keepalive $M"
+            git push
+          fi
