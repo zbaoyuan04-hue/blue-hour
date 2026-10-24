@@ -1,0 +1,62 @@
+name: 日程提醒
+
+on:
+  schedule:
+    # 北京时间 07:00–08:59（UTC 23:00–00:59）
+    - cron: "*/10 23,0 * * *"
+    # 北京时间 19:00–20:59（UTC 11:00–12:59）
+    - cron: "*/10 11,12 * * *"
+  workflow_dispatch: {} # 手动点一下 = 立刻发一条测试
+
+permissions:
+  contents: read
+
+concurrency:
+  group: agenda
+  cancel-in-progress: false
+
+jobs:
+  remind:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 判断现在是早间还是晚间
+        id: slot
+        run: |
+          DAY=$(TZ=Asia/Shanghai date +%F)
+          H=$(TZ=Asia/Shanghai date +%-H)
+          if [ "$H" = "8" ]; then SLOT=morning
+          elif [ "$H" = "20" ]; then SLOT=evening
+          else SLOT=none; fi
+          echo "day=$DAY" >> "$GITHUB_OUTPUT"
+          echo "slot=$SLOT" >> "$GITHUB_OUTPUT"
+
+      - name: 检查这个时段是否已经发过
+        id: sent
+        if: steps.slot.outputs.slot != 'none'
+        uses: actions/cache/restore@v4
+        with:
+          path: .sent
+          key: agenda-${{ steps.slot.outputs.day }}-${{ steps.slot.outputs.slot }}
+
+      - name: 到点就发
+        if: github.event_name == 'schedule' && steps.slot.outputs.slot != 'none' && steps.sent.outputs.cache-hit != 'true'
+        env:
+          SCT_KEY: ${{ secrets.SCT_KEY }}
+        run: python3 agenda.py --slot=${{ steps.slot.outputs.slot }}
+
+      - name: 记下已发
+        if: github.event_name == 'schedule' && steps.slot.outputs.slot != 'none' && steps.sent.outputs.cache-hit != 'true' && hashFiles('.sent/agenda-*') != ''
+        continue-on-error: true
+        uses: actions/cache/save@v4
+        with:
+          path: .sent
+          key: agenda-${{ steps.slot.outputs.day }}-${{ steps.slot.outputs.slot }}
+
+      - name: 手动触发时发一条测试
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          SCT_KEY: ${{ secrets.SCT_KEY }}
+        run: python3 agenda.py --test
