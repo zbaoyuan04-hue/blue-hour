@@ -19,7 +19,7 @@ from datetime import date, datetime, timedelta
 CONFIG = {
     "tz": "Asia/Shanghai",
     "events": "events.txt",
-    "lookahead_days": 14,
+    "lookahead_days": 30,
     "overdue_days": 14,
     "window_minutes": 20,
     "morning": (8, 0),
