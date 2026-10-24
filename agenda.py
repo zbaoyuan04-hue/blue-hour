@@ -19,7 +19,7 @@ from datetime import date, datetime, timedelta
 CONFIG = {
     "tz": "Asia/Shanghai",
     "events": "events.txt",
-    "lookahead_days": 7,
+    "lookahead_days": 14,
     "overdue_days": 14,
     "window_minutes": 20,
     "morning": (8, 0),
@@ -119,12 +119,12 @@ def build(slot, today, events):
         if lines:
             lines.append("")
         lines.append("**之后**")
-        lines += [f"· {x}（还有 {d} 天）" for d, x in buckets["later"]]
+        lines += [f"· {x} — {d} 天后" for d, x in buckets["later"]]
     if buckets["overdue"]:
         if lines:
             lines.append("")
         lines.append("**已经过了，记得删掉**")
-        lines += [f"· {x}（{-d} 天前）" for d, x in buckets["overdue"]]
+        lines += [f"· {x} — 已过 {-d} 天" for d, x in buckets["overdue"]]
 
     if not lines:
         if not CONFIG["send_when_empty"]:
@@ -177,11 +177,13 @@ def main():
     if "--test" in sys.argv:
         slot = slot or "morning"
         evs = load_events(today)
-        if evs:
-            body = build(slot, today, evs) or "（名单是空的，先去 events.txt 里写几行）"
-        else:
+        keep = CONFIG["lookahead_days"]
+        CONFIG["lookahead_days"] = 365          # 测试时把所有事都列出来
+        body = build(slot, today, evs)
+        if not body:
             demo = [(today, "09:30", "示例·晨会"), (today + timedelta(days=2), None, "示例·报名截止")]
             body = "（示例——events.txt 里还没有内容）\n\n" + build(slot, today, demo)
+        CONFIG["lookahead_days"] = keep
         return 0 if send("日程提醒（测试）", body) else 1
 
     if "--preview" in sys.argv:
